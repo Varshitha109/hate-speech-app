@@ -50,10 +50,10 @@ stemmer = PorterStemmer()
 
 # Define preprocess and tokenize functions
 def preprocess(text_string):
-    spaces = '\s+'
+    spaces = r'\s+'
     url = ('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|'
            '[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
-    mention = '@[\w\-]+'
+    mention = r'@[\w\-]+'
     text = re.sub(spaces, ' ', text_string)
     text = re.sub(url, '', text)
     text = re.sub(mention, '', text)
