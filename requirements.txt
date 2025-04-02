@@ -1,0 +1,9 @@
+streamlit
+scikit-learn
+numpy
+pandas
+nltk
+vaderSentiment
+textstat
+better-profanity
+spacy
