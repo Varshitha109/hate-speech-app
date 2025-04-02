@@ -1,3 +1,4 @@
+%%writefile app.py
 import streamlit as st
 import pickle
 import pandas as pd
@@ -10,17 +11,19 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textstat.textstat import textstat
 from better_profanity import profanity
 import spacy
+import spacy.cli
 
 # Download NLTK resources
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('averaged_perceptron_tagger_eng')
 
-# Load spaCy model
-nlp = spacy.load('en_core_web_sm')
-
-import os
-os.system("python -m spacy download en_core_web_sm")
+# Download spaCy model if not already installed
+try:
+    nlp = spacy.load('en_core_web_sm')
+except OSError:
+    spacy.cli.download('en_core_web_sm')
+    nlp = spacy.load('en_core_web_sm')
 
 # Define stopwords and stemmer
 stopwords = nltk.corpus.stopwords.words("english")
