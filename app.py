@@ -1,4 +1,4 @@
-%%writefile app.py
+
 import streamlit as st
 import pickle
 import pandas as pd
