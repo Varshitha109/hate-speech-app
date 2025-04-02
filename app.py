@@ -19,6 +19,9 @@ nltk.download('averaged_perceptron_tagger_eng')
 # Load spaCy model
 nlp = spacy.load('en_core_web_sm')
 
+import os
+os.system("python -m spacy download en_core_web_sm")
+
 # Define stopwords and stemmer
 stopwords = nltk.corpus.stopwords.words("english")
 other_exclusions = ["#ff", "ff", "rt"]
