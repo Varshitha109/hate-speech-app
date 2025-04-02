@@ -13,6 +13,23 @@ from better_profanity import profanity
 import spacy
 import spacy.cli
 
+import nltk
+import os
+
+# NLTK data download
+def download_nltk_data():
+    try:
+        nltk.data.find('tokenizers/punkt')
+        nltk.data.find('corpora/stopwords')
+        nltk.data.find('taggers/averaged_perceptron_tagger')
+    except LookupError:
+        nltk.download('punkt')
+        nltk.download('stopwords')
+        nltk.download('averaged_perceptron_tagger')
+
+# Call this at the start of your app
+download_nltk_data()
+
 # Download NLTK resources
 nltk.download('punkt')
 nltk.download('stopwords')
