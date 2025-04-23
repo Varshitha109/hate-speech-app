@@ -1,59 +1,64 @@
-
 import streamlit as st
-import pickle
 import pandas as pd
 import numpy as np
+import joblib
 import nltk
+from nltk.corpus import stopwords
+from nltk.stem.porter import PorterStemmer
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
-from nltk.stem.porter import PorterStemmer
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from textstat.textstat import textstat
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as VS
+from textstat.textstat import *
 from better_profanity import profanity
 import spacy
-import spacy.cli
 
-import nltk
-import os
+# NLTK data
+nltk.download('stopwords', quiet=True)
+nltk.download('averaged_perceptron_tagger_eng', quiet=True)
 
-# NLTK data download
-def download_nltk_data():
-    try:
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('corpora/stopwords')
-        nltk.data.find('taggers/averaged_perceptron_tagger')
-    except LookupError:
-        nltk.download('punkt')
-        nltk.download('stopwords')
-        nltk.download('averaged_perceptron_tagger')
+# spaCy model
+nlp = spacy.load('en_core_web_sm')
 
-# Call this at the start of your app
-download_nltk_data()
+# VADER sentiment
+sentiment_analyzer = VS()
 
-# Download NLTK resources
-nltk.download('punkt')
-nltk.download('stopwords')
-nltk.download('averaged_perceptron_tagger_eng')
-
-# Download spaCy model if not already installed
-try:
-    nlp = spacy.load('en_core_web_sm')
-except OSError:
-    spacy.cli.download('en_core_web_sm')
-    nlp = spacy.load('en_core_web_sm')
-
-# Define stopwords and stemmer
-stopwords = nltk.corpus.stopwords.words("english")
+# Stopwords and stemmer
+stopwords = stopwords.words("english")
 other_exclusions = ["#ff", "ff", "rt"]
 stopwords.extend(other_exclusions)
 stemmer = PorterStemmer()
 
-# Define preprocess and tokenize functions
+# Profanity list
+custom_profanity_list = [
+    "nigga", "nigger", "fuck", "shit", "bitch", "cunt", "asshole",
+    "fucking", "motherfucker", "dumbass", "slut", "whore", "cock",
+    "dick", "pussy", "fag", "faggot", "retard", "bastard", "twat"
+]
+profanity.load_censor_words(custom_profanity_list)
+
+# Obfuscation patterns
+obfuscation_patterns = [
+    r'f[\W_]*u[\W_]*c[\W_]*k', r's[\W_]*h[\W_]*i[\W_]*t', r'b[\W_]*i[\W_]*t[\W_]*c[\W_]*h',
+    r'n[\W_]*i[\W_]*g[\W_]*g[\W_]*a', r'p[\W_]*u[\W_]*s[\W_]*s[\W_]*y',
+    r'n[\W_]*i[\W_]*g[\W_]*g[\W_]*e[\W_]*r', r'f[\W_]*a[\W_]*g', 
+    r'f[\W_]*a[\W_]*g[\W_]*g[\W_]*o[\W_]*t'
+]
+compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in obfuscation_patterns]
+
+# Load .pkl files
+try:
+    pipeline = joblib.load('pipeline_compressed.pkl')
+    vectorizer = joblib.load('vectorizer_compressed.pkl')
+    pos_vectorizer = joblib.load('pos_vectorizer_compressed.pkl')
+except FileNotFoundError:
+    st.error("Model or vectorizer files not found! Ensure .pkl files are uploaded.")
+    st.stop()
+
+# Preprocessing functions
 def preprocess(text_string):
-    spaces = r'\s+'
-    url = ('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|'
-           '[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
-    mention = r'@[\w\-]+'
+    spaces = '\s+'
+    url = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    mention = '@[\w\-]+'
     text = re.sub(spaces, ' ', text_string)
     text = re.sub(url, '', text)
     text = re.sub(mention, '', text)
@@ -69,16 +74,25 @@ def basic_tokenize(tweet):
     tweet = re.sub(r'[^a-zA-Z\s]', '', tweet)
     return tweet.split()
 
-# Load model and vectorizers
-pipeline = pickle.load(open('pipeline.pkl', 'rb'))
-vectorizer = pickle.load(open('vectorizer.pkl', 'rb'))
-pos_vectorizer = pickle.load(open('pos_vectorizer.pkl', 'rb'))
+def normalize_text(text):
+    text = text.lower()
+    text = re.sub(r'[\W_]+', '', text)
+    text = re.sub(r'\s+', '', text)
+    return text
 
-# Rest of your functions
+def contains_profanity(text):
+    normalized_text = normalize_text(text)
+    return int(any(word in normalized_text for word in custom_profanity_list))
+
+def detect_obfuscation(text):
+    return int(any(pattern.search(text) for pattern in compiled_patterns))
+
+def get_profanity_scores(text):
+    return [contains_profanity(text), detect_obfuscation(text)]
+
 def count_twitter_objs(text_string):
     spaces = '\s+'
-    giant_url = ('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|'
-                 '[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+    giant_url = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
     mention = '@[\w\-]+'
     hashtag = '#[\w\-]+'
     text = re.sub(spaces, ' ', text_string)
@@ -96,50 +110,12 @@ def ner_features(tweet):
         else:
             ner_counts[ent.label_] = 1
     common_entity_types = ['PERSON', 'NORP', 'FAC', 'ORG', 'LOC', 'DATE']
-    features = [ner_counts.get(entity, 0) for entity in common_entity_types]
-    return features
+    return [ner_counts.get(entity, 0) for entity in common_entity_types]
 
 def extract_dependency_tuples(tweet):
     doc = nlp(tweet)
     dep_tuples = [(token.head.text, token.dep_, token.text) for token in doc]
     return dep_tuples
-
-sentiment_analyzer = SentimentIntensityAnalyzer()
-
-def normalize_text(text):
-    text = text.lower()
-    text = re.sub(r'[\W_]+', '', text)
-    text = re.sub(r'\s+', '', text)
-    return text
-
-custom_profanity_list = [
-    "nigga", "nigger", "fuck", "shit", "bitch", "cunt", "asshole",
-    "fucking", "motherfucker", "dumbass", "slut", "whore", "cock",
-    "dick", "pussy", "fag", "faggot", "retard", "bastard", "twat"
-]
-profanity.load_censor_words(custom_profanity_list)
-
-obfuscation_patterns = [
-    r'f[\W_]*u[\W_]*c[\W_]*k',
-    r's[\W_]*h[\W_]*i[\W_]*t',
-    r'b[\W_]*i[\W_]*t[\W_]*c[\W_]*h',
-    r'n[\W_]*i[\W_]*g[\W_]*g[\W_]*a',
-    r'p[\W_]*u[\W_]*s[\W_]*s[\W_]*y',
-    r'n[\W_]*i[\W_]*g[\W_]*g[\W_]*e[\W_]*r',
-    r'f[\W_]*a[\W_]*g',
-    r'f[\W_]*a[\W_]*g[\W_]*g[\W_]*o[\W_]*t'
-]
-compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in obfuscation_patterns]
-
-def contains_profanity(text):
-    normalized_text = normalize_text(text)
-    return int(any(word in normalized_text for word in custom_profanity_list))
-
-def detect_obfuscation(text):
-    return int(any(pattern.search(text) for pattern in compiled_patterns))
-
-def get_profanity_scores(text):
-    return [contains_profanity(text), detect_obfuscation(text)]
 
 def other_features(tweet):
     sentiment = sentiment_analyzer.polarity_scores(tweet)
@@ -164,8 +140,7 @@ def other_features(tweet):
     features = [
         FKRA, FRE, syllables, avg_syl, num_chars, num_chars_total, num_terms, num_words,
         num_unique_terms, sentiment['neg'], sentiment['pos'], sentiment['neu'], sentiment['compound'],
-        twitter_objs[2], twitter_objs[1], twitter_objs[0],
-        nsubj_count, dobj_count
+        twitter_objs[2], twitter_objs[1], twitter_objs[0], nsubj_count, dobj_count
     ] + ner_feats + prof_scores
     return features
 
@@ -175,10 +150,7 @@ def get_feature_array(tweets):
         feats.append(other_features(t))
     return np.array(feats)
 
-def class_to_name(class_number):
-    classes = {0: "Hate", 1: "Offensive", 2: "Neither"}
-    return classes.get(class_number, "Unknown")
-
+# Prediction function
 def get_tweets_predictions(tweets):
     tfidf_tweets = vectorizer.transform(tweets).toarray()
     tweet_tags = []
@@ -192,26 +164,29 @@ def get_tweets_predictions(tweets):
     other_feats = get_feature_array(tweets)
     tweet_features = np.concatenate([tfidf_tweets, pos_tags, other_feats], axis=1)
     prediction = pipeline.predict(tweet_features)
-    probabilities = pipeline.predict_proba(tweet_features)  # Get probabilities
-    return prediction, probabilities
+    return prediction
 
-# Streamlit interface
-st.title("Hate Speech Detection App")
-st.write("Enter a tweet below to classify it as Hate, Offensive, or Neither.")
+# Class mapping
+def class_to_name(class_number):
+    classes = {0: "Hate", 1: "Offensive", 2: "Neither"}
+    return classes.get(class_number, "Unknown")
 
-# Text input box
-user_input = st.text_area("Enter Tweet", height=150)
+# Streamlit UI
+st.title("Hate Speech Detector with CatBoost 😊")
+st.write("Tweet type chey, adi **Hate**, **Offensive**, or **Neither** ani cheptha!")
 
-# Predict button
-if st.button("Classify"):
-    if user_input:
-        tweet_to_test = [user_input]
-        prediction, probs = get_tweets_predictions(tweet_to_test)
-        result = class_to_name(prediction[0])
-        st.success(f"Predicted Class: {result}")
-        st.write(f"Confidence Scores:")
-        st.write(f"Hate: {probs[0][0]:.2f}")
-        st.write(f"Offensive: {probs[0][1]:.2f}")
-        st.write(f"Neither: {probs[0][2]:.2f}")
+# User input
+tweet_input = st.text_area("Tweet type chey:", height=100)
+
+if st.button("Classify Cheyyi"):
+    if not tweet_input.strip():
+        st.error("Tweet type cheyyali, empty ga vaddu!")
     else:
-        st.warning("Please enter a tweet!")
+        tweet_to_test = [tweet_input]
+        try:
+            prediction = get_tweets_predictions(tweet_to_test)
+            predicted_class = class_to_name(prediction[0])
+            st.success(f"**Prediction**: {predicted_class}")
+            st.write(f"**Tweet**: {tweet_input}")
+        except Exception as e:
+            st.error(f"Error vachindi: {str(e)}")
