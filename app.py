@@ -11,10 +11,20 @@ from textstat.textstat import textstat
 from better_profanity import profanity
 import spacy
 
+
 # Download NLTK resources
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('averaged_perceptron_tagger_eng')
+
+import nltk
+import os
+
+# Download the required NLTK data
+try:
+    nltk.data.find('taggers/averaged_perceptron_tagger')
+except LookupError:
+    nltk.download('averaged_perceptron_tagger')
 
 # Load spaCy model
 nlp = spacy.load('en_core_web_sm')
